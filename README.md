@@ -79,6 +79,51 @@ kubectl argo rollouts abort   todolist-frontend -n todolist   # back to stable
 Setting `frontend.rollout.enabled: false` renders a plain Deployment instead,
 which is the fallback if Argo Rollouts is ever uninstalled.
 
+## Image signature verification
+
+CI signs both images with Cosign keyless, but signing alone protects nothing:
+Cosign only *produces* a signature, and kubelet has no concept of one. The
+check is a separate admission controller, so until one exists the cluster will
+happily run any image whose digest appears in `envs/prod/values.yaml`.
+
+`policies/verify-image-signatures.yaml` is that check — a Kyverno
+`ClusterPolicy` requiring a keyless signature issued to this project's CI
+workflow:
+
+| Field | Value |
+| ----- | ----- |
+| subject | `https://github.com/HoHuuAn/devops-todolist/.github/workflows/ci-cd.yml@refs/heads/main` |
+| issuer | `https://token.actions.githubusercontent.com` |
+
+Both values were read out of the Fulcio certificate on a published signature,
+not assumed. The `@refs/heads/main` suffix is what makes this useful: a
+signature produced by the same workflow on a fork or a feature branch carries
+a different subject and is rejected, so pushing a malicious image to the
+registry is not enough to get it running.
+
+Only `hohuuan2003/devops-todolist-*` is in scope. Third-party images (redis,
+nginx) are deliberately excluded — requiring signatures from them would block
+the namespace.
+
+**The policy is in `Audit` mode.** Violations appear in PolicyReports and Pods
+are still admitted:
+
+```bash
+kubectl get policyreports -n todolist          # FAIL column is what matters
+kubectl describe clusterpolicy verify-todolist-image-signatures
+```
+
+Verified behaviour at install time: the signed backend digest was admitted,
+and an unsigned image from before Cosign was added was correctly flagged
+`no signatures found`.
+
+Switch to `Enforce` by changing `validationFailureAction` — but only after the
+reports stay clean for a few days. Keyless verification calls out to Rekor and
+Fulcio, and this host has intermittently returned 403 for ghcr.io, so a
+network failure under `Enforce` would prevent every Pod in the namespace from
+starting. `failurePolicy: Ignore` limits that blast radius but is not a
+substitute for watching the reports first.
+
 ## Constraints worth knowing
 
 **The backend is pinned to one replica, and is deliberately not canaried.**

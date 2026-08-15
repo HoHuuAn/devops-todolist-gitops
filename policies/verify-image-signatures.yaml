@@ -1,0 +1,67 @@
+# Verifies that every todolist image was signed by this project's CI workflow
+# before Kubernetes will run it.
+#
+# Cosign only produces signatures; nothing in Kubernetes checks them on its
+# own, because kubelet has no concept of a signature. This admission policy is
+# the half that turns those signatures into an actual gate.
+#
+# MODE: Audit. Violations are recorded as PolicyReports but Pods are still
+# admitted. Switch validationFailureAction to Enforce only after the reports
+# have been clean for a few days — see the README for why that matters on this
+# host specifically.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-todolist-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify Cosign signatures on todolist images
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Requires todolist images to carry a Cosign keyless signature issued to
+      this repository's CI workflow on main. Rejects images signed from a
+      fork, another branch, or a developer laptop, even if the attacker can
+      push to the registry.
+spec:
+  validationFailureAction: Audit
+  background: false
+  # Never block Pod admission because Sigstore is slow or unreachable; a
+  # timeout surfaces in the report instead.
+  webhookTimeoutSeconds: 30
+  failurePolicy: Ignore
+  rules:
+    - name: verify-cosign-keyless-signature
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - todolist
+      verifyImages:
+        # Only our own images are in scope. redis and other third-party
+        # images are not signed by this workflow and must not be required to
+        # be — listing them here would block the whole namespace.
+        - imageReferences:
+            - "hohuuan2003/devops-todolist-fe*"
+            - "hohuuan2003/devops-todolist-be*"
+            - "docker.io/hohuuan2003/devops-todolist-fe*"
+            - "docker.io/hohuuan2003/devops-todolist-be*"
+          # The digest is already pinned by CI in envs/prod/values.yaml, so
+          # Kyverno must not rewrite the tag to a digest of its own choosing.
+          mutateDigest: false
+          # Fail closed on an unsigned image rather than skipping the check.
+          required: true
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    # Values below were read out of the Fulcio certificate on
+                    # the published signature, not assumed. The @refs/heads/main
+                    # suffix is what pins this to the main branch: a signature
+                    # produced by the same workflow on a fork or feature branch
+                    # carries a different subject and is rejected.
+                    subject: "https://github.com/HoHuuAn/devops-todolist/.github/workflows/ci-cd.yml@refs/heads/main"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    rekor:
+                      url: https://rekor.sigstore.dev
