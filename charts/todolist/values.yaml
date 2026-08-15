@@ -1,0 +1,39 @@
+# Umbrella defaults. Environment overlays live in envs/<env>/values.yaml and
+# are the files CI writes image tags/digests into.
+
+backend:
+  enabled: true
+  image:
+    repository: hohuuan/devops-todolist-be
+    tag: latest
+    digest: ""
+  service:
+    port: 3000
+  redis:
+    enabled: true
+    # Empty string derives redis://<release>-redis:6379 from the release name.
+    url: ""
+
+frontend:
+  enabled: true
+  image:
+    repository: hohuuan/devops-todolist-fe
+    tag: latest
+    digest: ""
+  replicaCount: 2
+  service:
+    port: 80
+
+redis:
+  enabled: true
+
+ingress:
+  enabled: true
+  className: nginx
+  host: todolist.103.75.183.229.nip.io
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+  tls:
+    enabled: false
+    secretName: todolist-tls

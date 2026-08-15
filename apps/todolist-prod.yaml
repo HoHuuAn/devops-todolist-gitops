@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: todolist-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    # The chart itself.
+    - repoURL: https://github.com/HoHuuAn/devops-todolist-gitops.git
+      targetRevision: main
+      path: charts/todolist
+      helm:
+        releaseName: todolist
+        # $values refers to the ref-only source below, which lets the overlay
+        # live outside the chart directory without a "../" path escape.
+        valueFiles:
+          - $values/envs/prod/values.yaml
+    # Ref-only source exposing the same repo for $values resolution.
+    - repoURL: https://github.com/HoHuuAn/devops-todolist-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: todolist
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

@@ -1,0 +1,3 @@
+# Subcharts are committed as source directories, not packaged archives.
+charts/**/charts/*.tgz
+Chart.lock

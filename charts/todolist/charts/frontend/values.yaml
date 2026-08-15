@@ -1,0 +1,31 @@
+# Defaults for the frontend subchart.
+# CI writes back image.tag / image.digest in envs/prod/values.yaml.
+
+replicaCount: 2
+
+image:
+  repository: hohuuan/devops-todolist-fe
+  tag: latest
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 80
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL

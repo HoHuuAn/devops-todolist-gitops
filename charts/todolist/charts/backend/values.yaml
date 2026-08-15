@@ -1,0 +1,66 @@
+# Defaults for the backend subchart.
+# CI writes back image.tag / image.digest in the environment values file
+# (envs/prod/values.yaml), not here.
+
+image:
+  repository: hohuuan/devops-todolist-be
+  tag: latest
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+service:
+  type: ClusterIP
+  port: 3000
+  targetPort: 3000
+
+env:
+  nodeEnv: production
+
+extraEnv: []
+
+# Set by the umbrella chart when the redis subchart is enabled.
+redis:
+  enabled: false
+  url: ""
+
+probes:
+  path: /health
+  liveness:
+    initialDelaySeconds: 20
+    periodSeconds: 20
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+persistence:
+  enabled: true
+  # better-sqlite3 writes a single file; the mount is its parent directory.
+  dbPath: /data/app.db
+  accessMode: ReadWriteOnce
+  # Empty string uses the cluster default (local-path on k3s).
+  storageClass: ""
+  size: 2Gi
+
+podSecurityContext:
+  # The image's appuser is uid/gid 1001; fsGroup makes the PVC writable by it.
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL

@@ -1,0 +1,49 @@
+# Production overlay for the todolist umbrella chart.
+#
+# The image blocks below are updated automatically by the CI pipeline in
+# HoHuuAn/devops-todolist (.github/workflows/ci-cd.yml, "gitops-write-back" job).
+# Edit tags/digests by hand only to force a rollback.
+
+backend:
+  image:
+    repository: hohuuan/devops-todolist-be
+    tag: latest
+    digest: ""
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  persistence:
+    enabled: true
+    size: 2Gi
+
+frontend:
+  image:
+    repository: hohuuan/devops-todolist-fe
+    tag: latest
+    digest: ""
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+redis:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 1Gi
+
+ingress:
+  enabled: true
+  className: nginx
+  host: todolist.103.75.183.229.nip.io
+  tls:
+    enabled: false
