@@ -4,7 +4,7 @@
 replicaCount: 2
 
 image:
-  repository: hohuuan/devops-todolist-fe
+  repository: hohuuan2003/devops-todolist-fe
   tag: latest
   digest: ""
   pullPolicy: IfNotPresent

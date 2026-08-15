@@ -6,7 +6,7 @@
 
 backend:
   image:
-    repository: hohuuan/devops-todolist-be
+    repository: hohuuan2003/devops-todolist-be
     tag: latest
     digest: ""
   replicaCount: 1
@@ -23,7 +23,7 @@ backend:
 
 frontend:
   image:
-    repository: hohuuan/devops-todolist-fe
+    repository: hohuuan2003/devops-todolist-fe
     tag: latest
     digest: ""
   replicaCount: 2

@@ -3,7 +3,7 @@
 # (envs/prod/values.yaml), not here.
 
 image:
-  repository: hohuuan/devops-todolist-be
+  repository: hohuuan2003/devops-todolist-be
   tag: latest
   digest: ""
   pullPolicy: IfNotPresent
