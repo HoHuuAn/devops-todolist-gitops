@@ -7,8 +7,8 @@
 backend:
   image:
     repository: hohuuan2003/devops-todolist-be
-    tag: latest
-    digest: ""
+    tag: 2f5ce21778d5550ca4d85b77092efa287551786c
+    digest: "sha256:971d229634e8bba936f153f69ba3a7292f97dd8a6c68d051e98e7f286245d1c1"
   replicaCount: 1
   resources:
     requests:
@@ -20,12 +20,11 @@ backend:
   persistence:
     enabled: true
     size: 2Gi
-
 frontend:
   image:
     repository: hohuuan2003/devops-todolist-fe
-    tag: latest
-    digest: ""
+    tag: 2f5ce21778d5550ca4d85b77092efa287551786c
+    digest: "sha256:1909c6dde5303185a93267eda97578d1a910f839b57ed8cd36833b90e1171f07"
   replicaCount: 2
   resources:
     requests:
@@ -34,13 +33,11 @@ frontend:
     limits:
       cpu: 200m
       memory: 128Mi
-
 redis:
   enabled: true
   persistence:
     enabled: true
     size: 1Gi
-
 ingress:
   enabled: true
   className: nginx
