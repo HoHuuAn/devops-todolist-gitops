@@ -47,6 +47,10 @@ spec:
               value: {{ .Values.service.targetPort | quote }}
             - name: DB_PATH
               value: {{ .Values.persistence.dbPath | quote }}
+            # Becomes the `app` label on every exported metric. The canary
+            # AnalysisTemplate filters on this exact value.
+            - name: APP_NAME
+              value: {{ .Values.metrics.appLabel | quote }}
             {{- if .Values.redis.enabled }}
             - name: REDIS_URL
               value: {{ default (printf "redis://%s-redis:6379" .Release.Name) .Values.redis.url | quote }}

@@ -27,6 +27,29 @@ frontend:
 redis:
   enabled: true
 
+# Canary analysis, consumed by the frontend Rollout.
+analysis:
+  enabled: true
+  templateName: todolist-error-rate-check
+  # Real service address of the bundled kube-prometheus-stack. (The upstream
+  # docs' prometheus-k8s name belongs to a different install layout.)
+  prometheusAddress: http://kube-prom-kube-prometheus-prometheus.monitoring.svc:9090
+  # Must match backend.metrics.appLabel, which sets APP_NAME on the pod.
+  appLabel: todolist-backend
+  initialDelay: 60s
+  interval: 30s
+  # 5xx must stay at or below 1% of requests.
+  #
+  # `len(result) == 0 ||` is load-bearing: a canary receiving no traffic yet
+  # returns an empty vector, and evaluating result[0] on it errors. Without
+  # the guard those errors count toward failureLimit and would roll back a
+  # healthy deploy simply because the site was idle.
+  successCondition: len(result) == 0 || result[0] <= 0.01
+  # p99 latency ceiling in seconds, with the same empty-vector guard.
+  latencySuccessCondition: len(result) == 0 || result[0] <= 1.5
+  # Allow three consecutive breaches before rolling back, to absorb blips.
+  failureLimit: 3
+
 ingress:
   enabled: true
   className: nginx

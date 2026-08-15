@@ -29,3 +29,24 @@ securityContext:
   capabilities:
     drop:
       - ALL
+
+# Progressive delivery. When disabled the chart renders a plain Deployment
+# instead, which is the fallback if Argo Rollouts is not installed.
+rollout:
+  enabled: true
+  # Traffic is shifted in stages, with the analysis below running throughout.
+  # A failed analysis aborts and returns all traffic to stable immediately.
+  steps:
+    - setWeight: 10
+    - pause: { duration: 5m }
+    - setWeight: 25
+    - pause: { duration: 5m }
+    - setWeight: 50
+    - pause: { duration: 10m }
+    - setWeight: 100
+  analysis:
+    enabled: true
+    templateName: todolist-error-rate-check
+    # Start analysis from the first step so a bad build is caught at 10%
+    # traffic rather than after it has already been promoted.
+    startingStep: 0

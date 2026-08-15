@@ -1,0 +1,51 @@
+{{- if .Values.analysis.enabled }}
+# Consulted by the frontend Rollout during a canary. If the backend's 5xx rate
+# exceeds the threshold, the AnalysisRun fails and Argo Rollouts sends all
+# traffic back to the stable ReplicaSet within seconds.
+#
+# The frontend image is stock nginx serving static files and exports no
+# metrics of its own, so the signal used here is the API error rate that a bad
+# frontend build would drive up (broken bundle -> failing/malformed API calls).
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: {{ .Values.analysis.templateName }}
+  labels:
+    app.kubernetes.io/name: todolist
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  args:
+    - name: service-name
+    - name: namespace
+  metrics:
+    - name: error-rate
+      # Give the new pods time to receive traffic before the first sample;
+      # querying immediately yields an empty vector and a false alarm.
+      initialDelay: {{ .Values.analysis.initialDelay }}
+      interval: {{ .Values.analysis.interval }}
+      # An empty result (no traffic yet) must not read as a failure, so the
+      # comparison is guarded with a default.
+      successCondition: {{ .Values.analysis.successCondition | quote }}
+      failureLimit: {{ .Values.analysis.failureLimit }}
+      provider:
+        prometheus:
+          address: {{ .Values.analysis.prometheusAddress | quote }}
+          query: |
+            sum(rate(http_requests_total{app="{{ .Values.analysis.appLabel }}",status=~"5.."}[2m]))
+            /
+            clamp_min(sum(rate(http_requests_total{app="{{ .Values.analysis.appLabel }}"}[2m])), 0.001)
+    - name: latency-p99
+      initialDelay: {{ .Values.analysis.initialDelay }}
+      interval: {{ .Values.analysis.interval }}
+      successCondition: {{ .Values.analysis.latencySuccessCondition | quote }}
+      failureLimit: {{ .Values.analysis.failureLimit }}
+      provider:
+        prometheus:
+          address: {{ .Values.analysis.prometheusAddress | quote }}
+          query: |
+            histogram_quantile(
+              0.99,
+              sum(rate(http_request_duration_seconds_bucket{app="{{ .Values.analysis.appLabel }}"}[2m])) by (le)
+            )
+{{- end }}

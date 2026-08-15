@@ -25,6 +25,20 @@ redis:
   enabled: false
   url: ""
 
+metrics:
+  # Path served by prom-client in BE/server.js.
+  path: /metrics
+  # Value of the `app` label on exported metrics; the canary analysis query in
+  # the umbrella chart must filter on the same string.
+  appLabel: todolist-backend
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+    scrapeTimeout: 10s
+    # This Prometheus is installed with serviceMonitorSelectorNilUsesHelmValues
+    # false, so no release label is required for discovery.
+    labels: {}
+
 probes:
   path: /health
   liveness:
