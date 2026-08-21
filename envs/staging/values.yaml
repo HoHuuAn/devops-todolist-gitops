@@ -1,0 +1,88 @@
+# Staging overlay.
+#
+# Same chart as prod, deliberately cheaper and less cautious: staging exists to
+# catch problems fast, so the canary does not sit through prod's long pauses.
+# CI writes the image blocks here exactly as it does for prod.
+
+backend:
+  image:
+    repository: hohuuan2003/devops-todolist-be
+    tag: latest
+    digest: ""
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  persistence:
+    enabled: true
+    size: 1Gi
+  metrics:
+    # Sets APP_NAME on the pod, which becomes the `app` label on every metric.
+    # Must equal analysis.appLabel below, or the canary query matches nothing.
+    appLabel: todolist-backend-staging
+
+frontend:
+  image:
+    repository: hohuuan2003/devops-todolist-fe
+    tag: latest
+    digest: ""
+  # One replica: a canary still works, it just cannot hold a fractional weight
+  # as precisely as prod's two.
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 10m
+      memory: 24Mi
+    limits:
+      cpu: 100m
+      memory: 96Mi
+  rollout:
+    enabled: true
+    # Minutes, not tens of minutes. Staging feedback speed matters more than
+    # a long observation window.
+    steps:
+      - setWeight: 50
+      - pause: { duration: 60s }
+      - setWeight: 100
+    analysis:
+      enabled: true
+      templateName: todolist-error-rate-check
+      startingStep: 0
+
+redis:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 512Mi
+
+ingress:
+  enabled: true
+  className: nginx
+  host: todolist-staging.103.75.183.229.nip.io
+  tls:
+    enabled: false
+
+analysis:
+  enabled: true
+  templateName: todolist-error-rate-check
+  prometheusAddress: http://kube-prom-kube-prometheus-prometheus.monitoring.svc:9090
+  # Must differ per environment: the AnalysisTemplate filters metrics on this
+  # label, and a shared value would let staging traffic decide prod's canary.
+  appLabel: todolist-backend-staging
+  initialDelay: 30s
+  interval: 20s
+  successCondition: len(result) == 0 || result[0] <= 0.05
+  latencySuccessCondition: len(result) == 0 || result[0] <= 2.5
+  failureLimit: 5
+
+smokeTest:
+  enabled: true
+  image: curlimages/curl:8.10.1
+  waitSeconds: 120
+  backoffLimit: 0
+  activeDeadlineSeconds: 240
+  ttlSecondsAfterFinished: 1800

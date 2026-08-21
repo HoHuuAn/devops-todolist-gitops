@@ -1,0 +1,91 @@
+# One ApplicationSet replacing a hand-written Application per environment.
+#
+# The git generator scans envs/*/values.yaml and produces one Application per
+# directory it finds, so adding envs/uat/values.yaml is the whole procedure for
+# creating a UAT environment — no new Application to write, nothing to
+# remember to keep in sync with the others.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: todolist
+  namespace: argocd
+spec:
+  # Required for {{.path.basename}} (Go text/template) to be interpolated at
+  # all. Without it ArgoCD falls back to the legacy fasttemplate engine, which
+  # only understands {{path.basename}} — no leading dot — and leaves the new
+  # syntax as a literal string, producing an Application literally named
+  # "todolist-{{.path.basename}}" that the API server then rejects as an
+  # invalid RFC 1123 name.
+  goTemplate: true
+  # Surfaces missing keys as an error instead of rendering "<no value>".
+  goTemplateOptions: ["missingkey=error"]
+
+  # Delete the generated Applications (and their workloads) when an env
+  # directory disappears. Without this, removing envs/staging leaves an
+  # orphaned Application running forever.
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+
+  # Roll changes out one environment at a time rather than all at once, so a
+  # chart change that breaks staging never reaches prod in the same sweep.
+  strategy:
+    type: RollingSync
+    rollingSync:
+      steps:
+        - matchExpressions:
+            - key: env
+              operator: In
+              values: [staging]
+        - matchExpressions:
+            - key: env
+              operator: In
+              values: [prod]
+
+  generators:
+    - git:
+        repoURL: https://github.com/HoHuuAn/devops-todolist-gitops.git
+        revision: main
+        # files (not directories) so {{.path.basename}} is the env name and a
+        # directory without a values.yaml is simply skipped.
+        files:
+          - path: "envs/*/values.yaml"
+
+  template:
+    metadata:
+      # path.basename is the directory name: prod, staging, ...
+      name: "todolist-{{.path.basename}}"
+      labels:
+        env: "{{.path.basename}}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      sources:
+        - repoURL: https://github.com/HoHuuAn/devops-todolist-gitops.git
+          targetRevision: main
+          path: charts/todolist
+          helm:
+            releaseName: todolist
+            valueFiles:
+              - "$values/envs/{{.path.basename}}/values.yaml"
+        - repoURL: https://github.com/HoHuuAn/devops-todolist-gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        # Each environment gets its own namespace. The backend keeps a SQLite
+        # file on a ReadWriteOnce volume, so environments must not share one.
+        namespace: "todolist{{- if ne .path.basename \"prod\" -}}-{{ .path.basename }}{{- end -}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ApplyOutOfSyncOnly=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
