@@ -42,6 +42,48 @@ One ingress serves everything on `todolist.103.75.183.229.nip.io`:
 The frontend calls the API with a relative URL, so it needs no build-time API
 host — same origin, routed by path.
 
+## Environments
+
+An `ApplicationSet` (`apps/todolist-appset.yaml`) generates one Application per
+directory under `envs/`, so adding an environment is one values file rather
+than another Application to write and keep in sync. `RollingSync` applies
+staging first and only moves to prod once staging is Healthy.
+
+| Env | Namespace | Host | Canary |
+| --- | --- | --- | --- |
+| prod | `todolist` | todolist.103.75.183.229.nip.io | 10 -> 25 -> 50 -> 100, long pauses |
+| staging | `todolist-staging` | todolist-staging.103.75.183.229.nip.io | 50 -> 100, 60s pause |
+
+`analysis.appLabel` must differ per environment. The AnalysisTemplate filters
+metrics on that label, so a shared value would let staging traffic decide
+prod's canary. It also has to match `backend.metrics.appLabel`, which is what
+sets `APP_NAME` on the pod.
+
+CI writes image digests into **every** overlay listed in `GITOPS_VALUES`.
+Leaving one out does not fail — that environment just quietly stays on a stale
+mutable tag until it breaks.
+
+See `docs/applicationset.md` for generator types and the failures hit while
+building this, including the sync deadlock that makes ArgoCD ignore new
+commits.
+
+## Post-sync verification
+
+`charts/todolist/templates/smoke-test-hook.yaml` runs as an ArgoCD `PostSync`
+hook, so the check is tied to the sync event rather than to a timer in CI. It
+talks to ClusterIP Services, which keeps it independent of Traefik, the
+self-signed nip.io certificate, and whichever pod the canary split happens to
+pick.
+
+It asserts health, that `/api/tasks` returns a JSON array, a write path (POST
+then DELETE, cleaning up its own row), that `/metrics` still exports
+`http_requests_total` — without which canary analysis has no data — and that
+the frontend serves the app shell. A read-only check would pass with the
+database mounted read-only or the disk full.
+
+The failed Job is kept for inspection; `BeforeHookCreation` clears the
+previous one on the next sync.
+
 ## Progressive delivery
 
 The frontend is an Argo Rollout, not a Deployment. A new image is shifted in
