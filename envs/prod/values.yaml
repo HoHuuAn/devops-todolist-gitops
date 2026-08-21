@@ -7,7 +7,7 @@
 backend:
   image:
     repository: hohuuan2003/devops-todolist-be
-    tag: 7cb8854e3611dd71bd50c4f2b2837c86a4e39e7a
+    tag: e2bc597c3e0774c8120f61246369bee5db1b7f19
     digest: "sha256:971d229634e8bba936f153f69ba3a7292f97dd8a6c68d051e98e7f286245d1c1"
   replicaCount: 1
   resources:
@@ -23,8 +23,8 @@ backend:
 frontend:
   image:
     repository: hohuuan2003/devops-todolist-fe
-    tag: 7cb8854e3611dd71bd50c4f2b2837c86a4e39e7a
-    digest: "sha256:1909c6dde5303185a93267eda97578d1a910f839b57ed8cd36833b90e1171f07"
+    tag: e2bc597c3e0774c8120f61246369bee5db1b7f19
+    digest: "sha256:2706c9daa171b6d40e170ccfb1fb7c40d32ccddc74b447416f36c3399d848fe2"
   replicaCount: 2
   resources:
     requests:
