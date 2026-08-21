@@ -1,0 +1,146 @@
+{{- if .Values.smokeTest.enabled }}
+# PostSync smoke test.
+#
+# ArgoCD runs this Job only after a sync has applied cleanly, so the check is
+# tied to the actual sync event rather than to a timer in CI. The equivalent
+# job in the app pipeline has to guess when the rollout landed and poll from
+# outside the cluster; this one starts when there is genuinely something new
+# to test, and its result shows up on the Application's health.
+#
+# It talks to the ClusterIP Services directly, not the public ingress: an
+# in-cluster check should not depend on Traefik, on the self-signed nip.io
+# certificate, or on the canary traffic split deciding which pod answers.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Fixed name on purpose. ArgoCD renders with `helm template`, so
+  # .Release.Revision is always 1 and would add nothing; BeforeHookCreation
+  # below deletes the previous Job before each run instead.
+  name: {{ .Release.Name }}-smoke
+  labels:
+    app.kubernetes.io/name: todolist
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: smoke-test
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    # Keep the failed Job around for inspection; drop superseded ones so the
+    # namespace does not accumulate a Job per deploy.
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: {{ .Values.smokeTest.backoffLimit }}
+  # Bound the whole attempt so a hung probe cannot leave the Application
+  # stuck in Progressing forever.
+  activeDeadlineSeconds: {{ .Values.smokeTest.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: {{ .Values.smokeTest.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: todolist
+        app.kubernetes.io/component: smoke-test
+    spec:
+      restartPolicy: Never
+      securityContext:
+        # curlimages/curl ships a `curl_user` at uid/gid 100.
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 100
+      containers:
+        - name: smoke
+          image: {{ .Values.smokeTest.image }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          env:
+            - name: BACKEND
+              value: "http://{{ .Release.Name }}-backend:{{ .Values.backend.service.port }}"
+            - name: FRONTEND
+              value: "http://{{ .Release.Name }}-frontend:{{ .Values.frontend.service.port }}"
+            - name: TIMEOUT
+              value: {{ .Values.smokeTest.waitSeconds | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              # Wait for readiness first. A PostSync hook can start before the
+              # new pods pass their readiness probes, so failing immediately
+              # here would report a healthy deploy as broken.
+              echo "==> waiting for backend health (up to ${TIMEOUT}s)"
+              waited=0
+              until curl -fsS -m 5 -o /tmp/health "${BACKEND}/health" 2>/dev/null; do
+                waited=$((waited + 5))
+                if [ "${waited}" -ge "${TIMEOUT}" ]; then
+                  echo "FAIL: backend never became healthy" >&2
+                  exit 1
+                fi
+                echo "    not ready yet (${waited}s)"
+                sleep 5
+              done
+              echo "    ok: $(cat /tmp/health)"
+
+              # A 200 is not enough. If the database layer is broken the API
+              # still answers, so assert the payload really is a JSON array.
+              echo "==> GET /api/tasks returns a JSON array"
+              curl -fsS -m 10 -o /tmp/tasks "${BACKEND}/api/tasks"
+              head -c 1 /tmp/tasks | grep -q '\[' || {
+                echo "FAIL: expected a JSON array, got:" >&2
+                head -c 300 /tmp/tasks >&2
+                exit 1
+              }
+              echo "    ok: $(head -c 120 /tmp/tasks)"
+
+              # Exercise a write path too: a read-only check would pass even
+              # with the database mounted read-only or the disk full.
+              echo "==> POST then DELETE a task (write path)"
+              curl -fsS -m 10 -o /tmp/created \
+                -H 'Content-Type: application/json' \
+                -d '{"text":"argocd postsync smoke test"}' \
+                "${BACKEND}/api/tasks"
+              id=$(sed -n 's/.*"id":\([0-9]*\).*/\1/p' /tmp/created)
+              [ -n "${id}" ] || { echo "FAIL: no id in create response" >&2; cat /tmp/created >&2; exit 1; }
+              echo "    created id=${id}"
+
+              # Clean up after ourselves so the board does not fill with a
+              # smoke-test row on every deploy. This runs before the remaining
+              # assertions so a later failure cannot leak the row.
+              curl -fsS -m 10 -o /dev/null -X DELETE "${BACKEND}/api/tasks/${id}"
+              echo "    deleted id=${id}"
+
+              echo "==> metrics endpoint exports http_requests_total"
+              curl -fsS -m 10 -o /tmp/metrics "${BACKEND}/metrics"
+              grep -q '^http_requests_total' /tmp/metrics || {
+                echo "FAIL: http_requests_total missing — canary analysis would have no data" >&2
+                exit 1
+              }
+              echo "    ok"
+
+              echo "==> frontend serves the app shell"
+              curl -fsS -m 10 -o /tmp/index "${FRONTEND}/"
+              grep -qi '<div id="root"' /tmp/index || {
+                echo "FAIL: frontend did not serve the expected app shell" >&2
+                head -c 300 /tmp/index >&2
+                exit 1
+              }
+              echo "    ok"
+
+              echo "SMOKE TEST PASSED"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # readOnlyRootFilesystem is on, so wget needs a writable /tmp.
+        - name: tmp
+          emptyDir: {}
+{{- end }}

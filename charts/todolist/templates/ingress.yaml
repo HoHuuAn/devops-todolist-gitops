@@ -1,11 +1,22 @@
 {{- if .Values.ingress.enabled }}
+# Two ingresses on one host, split by which controller owns them.
+#
+# Argo Rollouts builds its canary ingress by COPYING the stable ingress it is
+# pointed at, so whatever paths live there get duplicated onto a canary that
+# routes to the frontend canary Service. Leaving /api on that ingress produced
+# a second claim on /api whose backend was a frontend pod, and nginx answered
+# 404 for the API at 0% canary weight.
+#
+# So the ingress Rollouts manages holds ONLY the frontend catch-all, and API
+# routing lives on a separate ingress it never touches.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ .Release.Name }}
+  name: {{ .Release.Name }}-api
   labels:
     app.kubernetes.io/name: todolist
     app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: api
     app.kubernetes.io/managed-by: {{ .Release.Service }}
   {{- with .Values.ingress.annotations }}
   annotations:
@@ -23,7 +34,8 @@ spec:
     - host: {{ .Values.ingress.host | quote }}
       http:
         paths:
-          # Order matters: the API prefixes must precede the frontend catch-all.
+          # More specific paths win over the other ingress's "/" regardless of
+          # ordering, because nginx sorts by path length across ingresses.
           - path: /api
             pathType: Prefix
             backend:
@@ -38,6 +50,34 @@ spec:
                 name: {{ .Release.Name }}-backend
                 port:
                   number: {{ .Values.backend.service.port }}
+---
+# The Rollout's trafficRouting.nginx.stableIngress points here. Keep it to the
+# frontend only; anything added is mirrored onto the canary ingress.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app.kubernetes.io/name: todolist
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: web
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
           - path: /
             pathType: Prefix
             backend:

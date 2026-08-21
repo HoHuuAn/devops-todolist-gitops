@@ -27,6 +27,22 @@ frontend:
 redis:
   enabled: true
 
+# PostSync smoke test. Runs inside the cluster after ArgoCD applies a sync,
+# so verification is tied to the sync event instead of a timer in CI.
+smokeTest:
+  enabled: true
+  # curl, not busybox: busybox's wget cannot issue DELETE (no --method), so
+  # the write path could be created but never cleaned up.
+  image: curlimages/curl:8.10.1
+  # A PostSync hook can start before the new pods are ready, so the script
+  # polls /health for this long before giving up.
+  waitSeconds: 180
+  # No retries: a second attempt of a deterministic check just delays the
+  # failure being reported on the Application.
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 3600
+
 # Canary analysis, consumed by the frontend Rollout.
 analysis:
   enabled: true
