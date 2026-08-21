@@ -7,37 +7,46 @@ whatever is on `main` — nothing is ever applied to the cluster by hand or from
 ## Layout
 
 ```
-charts/todolist/                  umbrella chart
-  Chart.yaml                      declares the three subcharts
-  values.yaml                     defaults shared by all environments
-  templates/ingress.yaml          single ingress fronting both services
-  templates/analysistemplate.yaml canary success criteria (Prometheus)
-  charts/backend/                 Express + SQLite API (Deployment + PVC +
-                                  Service + ServiceMonitor)
-  charts/frontend/                React build served by nginx
-                                  (Rollout + stable/canary Services)
-  charts/redis/                   Redis cache (StatefulSet + Service)
-envs/prod/values.yaml             production overlay — CI writes image tags here
-apps/todolist-prod.yaml           ArgoCD Application pointing at chart + overlay
+charts/todolist/                   umbrella chart
+  values.yaml                      defaults shared by all environments
+  templates/ingress.yaml           two ingresses: API, and the one Rollouts owns
+  templates/analysistemplate.yaml  canary success criteria (Prometheus)
+  templates/smoke-test-hook.yaml   PostSync verification Job
+  charts/backend/                  Express + SQLite API (Deployment + PVC +
+                                   Service + ServiceMonitor)
+  charts/frontend/                 React build served by nginx
+                                   (Rollout + stable/canary Services)
+  charts/redis/                    Redis cache (StatefulSet + Service)
+envs/prod/values.yaml              prod overlay — CI writes image digests here
+envs/staging/values.yaml           staging overlay — likewise
+apps/todolist-appset.yaml          ApplicationSet generating one App per env
+policies/                          Kyverno image-signature policy
+docs/applicationset.md             generators, and the failures hit building this
 ```
 
 ## How a deploy happens
 
 1. A push to `main` in the app repo runs security scans, builds both images and
    pushes them to Docker Hub by digest.
-2. The `gitops-write-back` job commits the new tag and digest into
-   `envs/prod/values.yaml` in this repo.
-3. ArgoCD sees the commit and syncs the cluster. No SSH, no `kubectl apply`.
+2. The `gitops-write-back` job commits the new tag and digest into every
+   overlay under `envs/` in this repo.
+3. ArgoCD sees the commit and syncs — staging first, then prod. No SSH, no
+   `kubectl apply`.
+4. A `PostSync` hook smoke-tests each environment after its sync applies.
 
 ## Routing
 
-One ingress serves everything on `todolist.103.75.183.229.nip.io`:
+Two ingresses share the host, split by which controller owns them:
 
-| Path      | Service            |
-| --------- | ------------------ |
-| `/api/*`  | `todolist-backend` |
-| `/health` | `todolist-backend` |
-| `/*`      | `todolist-frontend`|
+| Ingress | Path | Service | Owner |
+| --- | --- | --- | --- |
+| `todolist-api` | `/api/*`, `/health` | `todolist-backend` | this chart |
+| `todolist` | `/*` | `todolist-frontend` | Argo Rollouts |
+
+The split is required, not cosmetic. Argo Rollouts builds its canary ingress by
+copying the stable one, so any path left on `todolist` is duplicated onto a
+canary whose backend is the frontend canary Service. With `/api` there, nginx
+served 404 for the API at 0% canary weight.
 
 The frontend calls the API with a relative URL, so it needs no build-time API
 host — same origin, routed by path.
